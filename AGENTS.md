@@ -9,7 +9,7 @@ NestJS-сервис: HTTP и RabbitMQ consumer в одном процессе, P
 - `src/config/` — разбор окружения (`loadConfig`) и глобальный `ConfigModule` с токеном `CONFIG`.
 - `src/db/` — пул `pg`, `transaction()`, `isReady()` (последняя миграция применена), `retry.ts` (классификация временных ошибок и повтор целой транзакции), раннер миграций.
 - `src/messaging/` — `topology.ts` (quorum-очередь, DLX, классическая DLQ), `republish.ts` (копия сообщения с подтверждением брокера), `BrokerStatus` (подключён ли консьюмер).
-- `src/health.controller.ts` — `/health/live` и `/health/ready`.
+- `src/health.controller.ts` — `/health/live` и `/health/ready`; статусы ответов — в `src/health.constants.ts`.
 - `src/common/` — общее для нескольких модулей: форматы ID, валюты и сумм (`formats.ts`), декоратор `@PlayerId()`. Сюда — только то, что используют минимум два модуля или что относится к HTTP-контракту в целом.
 - `migrations/` — SQL. Применённые миграции не редактировать, добавлять новый файл: `/health/ready` ждёт последнюю из них.
 - `scripts/` — продюсер (фиксированные сценарии и `load` с ожидаемыми очками), миграции, smoke.

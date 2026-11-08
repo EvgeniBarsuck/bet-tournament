@@ -1,9 +1,8 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 
 import { Database } from './db/database';
+import { HEALTH_STATUS, HEALTHY, type Healthy } from './health.constants';
 import { BrokerStatus } from './messaging/broker-status';
-
-const HEALTHY = Object.freeze({ status: 'ok' } as const);
 
 @Controller('health')
 export class HealthController {
@@ -14,18 +13,22 @@ export class HealthController {
 
   /** Liveness: the process serves HTTP. Dependencies are not checked, so their outage does not restart it. */
   @Get('live')
-  live(): typeof HEALTHY {
+  live(): Healthy {
     return HEALTHY;
   }
 
   /** Readiness: the database has the schema and the consumer is connected to RabbitMQ. */
   @Get('ready')
-  async ready(): Promise<typeof HEALTHY> {
+  async ready(): Promise<Healthy> {
     const database = await this.db.isReady();
     const broker = this.broker.isConnected();
 
     if (!database || !broker) {
-      throw new ServiceUnavailableException({ status: 'unavailable', database, broker });
+      throw new ServiceUnavailableException({
+        status: HEALTH_STATUS.UNAVAILABLE,
+        database,
+        broker,
+      });
     }
 
     return HEALTHY;

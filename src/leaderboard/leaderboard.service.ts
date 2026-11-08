@@ -12,9 +12,8 @@ export class LeaderboardService {
   async get(playerId: string): Promise<Leaderboard> {
     const row = await this.leaderboard.fetch(playerId, LEADERBOARD_SIZE);
 
-    return {
-      top: row.top,
-      player: { playerId, points: row.points ?? NO_POINTS, position: row.position },
-    };
+    const player = { playerId, points: row.points ?? NO_POINTS, position: row.position };
+
+    return { top: row.top, player };
   }
 }

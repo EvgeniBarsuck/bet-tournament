@@ -9,9 +9,9 @@ const DEFAULT_DIRECTORY = join(process.cwd(), MIGRATIONS_DIRECTORY);
 
 /** Migration file names in the order they are applied. */
 export async function migrationFiles(directory = DEFAULT_DIRECTORY): Promise<string[]> {
-  return (await readdir(directory))
-    .filter((name) => name.endsWith(MIGRATION_FILE_EXTENSION))
-    .sort();
+  const names = await readdir(directory);
+
+  return names.filter((name) => name.endsWith(MIGRATION_FILE_EXTENSION)).sort();
 }
 
 /** Applies new files from migrations/ in name order, each in its own transaction. */

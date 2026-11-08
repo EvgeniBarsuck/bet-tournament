@@ -33,13 +33,17 @@ export function republish(
     headers: { ...kept, ...headers },
   };
 
-  return new Promise((resolve, reject) => {
-    channel.publish(exchange, routingKey, message.content, options, (error: unknown) =>
-      error
-        ? reject(
-            error instanceof Error ? error : new Error('Publish not confirmed', { cause: error }),
-          )
-        : resolve(),
-    );
+  const confirmed = Promise.withResolvers<void>();
+
+  channel.publish(exchange, routingKey, message.content, options, (error: unknown) => {
+    if (error) confirmed.reject(asError(error));
+    else confirmed.resolve();
   });
+
+  return confirmed.promise;
+}
+
+/** amqplib reports a broker nack as a non-Error value. */
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error('Publish not confirmed', { cause: error });
 }

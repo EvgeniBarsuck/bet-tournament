@@ -73,8 +73,7 @@ export function parseRates(json: string): ReadonlyMap<string, string> {
 
 export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
   const e = env.parse(source);
-
-  return {
+  const config: Config = {
     databaseUrl: e.DATABASE_URL,
     rabbitmqUrl: e.RABBITMQ_URL,
     queue: e.RABBITMQ_QUEUE,
@@ -84,4 +83,6 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
     rates: parseRates(e.USD_RATES),
     logFormat: e.LOG_FORMAT,
   };
+
+  return config;
 }

@@ -3,7 +3,7 @@ import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-import type { MessagePropertyHeaders } from 'amqplib';
+import type { ConfirmChannel, MessagePropertyHeaders } from 'amqplib';
 
 import { BET_PATTERN, BET_REJECTION } from '../src/bets/bets.constants';
 import { PLAYER_ID_HEADER } from '../src/common/player-id.decorator';
@@ -45,22 +45,24 @@ async function findDeadLetter(
 
   const queue = deadLetterQueue(process.env.RABBITMQ_QUEUE ?? DEFAULT_QUEUE);
 
-  return withChannel(url, async (channel) => {
+  const watch = async (channel: ConfirmChannel) => {
+    const found = Promise.withResolvers<MessagePropertyHeaders | undefined>();
+    const timer = setTimeout(() => found.resolve(undefined), timeoutMs);
+
     await channel.prefetch(DLQ_PREFETCH);
+    await channel.consume(queue, (message) => {
+      if (!message?.content.toString().includes(betId)) return;
 
-    return new Promise<MessagePropertyHeaders | undefined>((resolve) => {
-      const timer = setTimeout(() => resolve(undefined), timeoutMs);
+      if (take) channel.ack(message);
 
-      void channel.consume(queue, (message) => {
-        if (!message?.content.toString().includes(betId)) return;
-
-        if (take) channel.ack(message);
-
-        clearTimeout(timer);
-        resolve((message.properties as { headers?: MessagePropertyHeaders }).headers ?? {});
-      });
+      clearTimeout(timer);
+      found.resolve((message.properties as { headers?: MessagePropertyHeaders }).headers ?? {});
     });
-  });
+
+    return found.promise;
+  };
+
+  return withChannel(url, watch);
 }
 
 async function pointsOf(playerId: string): Promise<string> {

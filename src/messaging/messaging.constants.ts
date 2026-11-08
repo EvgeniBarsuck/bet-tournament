@@ -11,6 +11,19 @@ export const DEAD_LETTER_ROUTING_KEY = 'failed';
  */
 export const DELIVERY_LIMIT = 20;
 
+/**
+ * Main queue arguments: quorum, with a delivery limit against messages that crash the
+ * consumer. Dead-lettering is at-least-once, which requires reject-publish overflow.
+ * They must match an existing queue exactly, otherwise assertQueue fails: changing
+ * them means deleting the (empty) queue before the new version starts (see README).
+ */
+export const QUEUE_ARGUMENTS = Object.freeze({
+  'x-queue-type': 'quorum',
+  'x-delivery-limit': DELIVERY_LIMIT,
+  'x-dead-letter-strategy': 'at-least-once',
+  'x-overflow': 'reject-publish',
+});
+
 /** Headers the consumer adds to a dead-lettered or republished copy. */
 export const MESSAGE_HEADER = Object.freeze({
   REJECTION_CODE: 'x-rejection-code',

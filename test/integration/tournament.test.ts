@@ -64,17 +64,16 @@ after(async () => {
   await admin?.end();
 });
 
-function bet(overrides: Partial<BetEvent> = {}): BetEvent {
-  return {
-    betId: 'b1',
-    playerId: 'p1',
-    currency: 'USD',
-    stake: '10',
-    winAmount: '25',
-    settledAt: '2026-11-06T10:00:00Z',
-    ...overrides,
-  };
-}
+const DEFAULT_BET: BetEvent = {
+  betId: 'b1',
+  playerId: 'p1',
+  currency: 'USD',
+  stake: '10',
+  winAmount: '25',
+  settledAt: '2026-11-06T10:00:00Z',
+};
+
+const bet = (overrides: Partial<BetEvent> = {}): BetEvent => ({ ...DEFAULT_BET, ...overrides });
 
 const points = async (playerId = 'p1') => (await leaderboard.get(playerId)).player.points;
 const rejected = (code: BetRejectionCode) => (error: unknown) =>

@@ -11,16 +11,14 @@ import { MessagingModule } from './messaging/messaging.module';
 @Module({})
 export class AppModule {
   static register(config: Config): DynamicModule {
-    return {
-      module: AppModule,
-      imports: [
-        ConfigModule.forRoot(config),
-        DatabaseModule,
-        MessagingModule,
-        BetsModule,
-        LeaderboardModule,
-      ],
-      controllers: [HealthController],
-    };
+    const imports = [
+      ConfigModule.forRoot(config),
+      DatabaseModule,
+      MessagingModule,
+      BetsModule,
+      LeaderboardModule,
+    ];
+
+    return { module: AppModule, imports, controllers: [HealthController] };
   }
 }

@@ -107,30 +107,33 @@ export class BetsConsumer implements BeforeApplicationShutdown {
 
   @EventPattern<string>(BET_PATTERN.SETTLED)
   onSettled(@Payload() data: unknown, @Ctx() context: RmqContext): Promise<void> {
-    return this.track(
-      this.handle(BET_PATTERN.SETTLED, data, context, (event) => this.bets.settle(event)),
-    );
+    return this.consume(BET_PATTERN.SETTLED, data, context);
   }
 
   @EventPattern<string>(BET_PATTERN.ROLLBACK)
   onRollback(@Payload() data: unknown, @Ctx() context: RmqContext): Promise<void> {
-    return this.track(
-      this.handle(BET_PATTERN.ROLLBACK, data, context, (event) => this.bets.rollback(event)),
-    );
+    return this.consume(BET_PATTERN.ROLLBACK, data, context);
   }
 
-  private track(work: Promise<void>): Promise<void> {
+  /** Handles one delivery and tracks it until it is acked or republished, for shutdown. */
+  private consume(pattern: BetPattern, data: unknown, context: RmqContext): Promise<void> {
+    const work = this.handle(pattern, data, context);
+
     this.inFlight.add(work);
 
     return work.finally(() => this.inFlight.delete(work));
   }
 
-  private async handle(
-    pattern: BetPattern,
-    data: unknown,
-    context: RmqContext,
-    apply: (event: BetEvent) => Promise<ApplyResult>,
-  ): Promise<void> {
+  private apply(pattern: BetPattern, event: BetEvent): Promise<ApplyResult> {
+    switch (pattern) {
+      case BET_PATTERN.SETTLED:
+        return this.bets.settle(event);
+      case BET_PATTERN.ROLLBACK:
+        return this.bets.rollback(event);
+    }
+  }
+
+  private async handle(pattern: BetPattern, data: unknown, context: RmqContext): Promise<void> {
     // The Nest RMQ server consumes on a confirm channel (amqp-connection-manager default).
     const channel = context.getChannelRef() as ConfirmChannel;
     const message = context.getMessage() as Message;
@@ -164,7 +167,7 @@ export class BetsConsumer implements BeforeApplicationShutdown {
 
     try {
       const result = await withRetry(
-        () => apply(parsed.data),
+        () => this.apply(pattern, parsed.data),
         this.retryDelays,
         (attempt, error) =>
           this.logger.warn({

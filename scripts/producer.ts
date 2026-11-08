@@ -70,18 +70,23 @@ export async function publish(messages: readonly unknown[]): Promise<void> {
   });
 }
 
-function settle(prefix: string, bet: string, player: string, currency: string, win: string) {
-  return {
-    pattern: BET_PATTERN.SETTLED,
-    data: {
-      betId: `${prefix}-${bet}`,
-      playerId: `${prefix}-${player}`,
-      currency,
-      stake: DEMO_STAKE,
-      winAmount: win,
-      settledAt: DEMO_SETTLED_AT,
-    },
-  } satisfies Envelope;
+function settle(
+  prefix: string,
+  bet: string,
+  player: string,
+  currency: string,
+  win: string,
+): Envelope {
+  const data: BetEvent = {
+    betId: `${prefix}-${bet}`,
+    playerId: `${prefix}-${player}`,
+    currency,
+    stake: DEMO_STAKE,
+    winAmount: win,
+    settledAt: DEMO_SETTLED_AT,
+  };
+
+  return { pattern: BET_PATTERN.SETTLED, data };
 }
 
 const rollback = (event: Envelope): Envelope => ({ ...event, pattern: BET_PATTERN.ROLLBACK });
@@ -95,14 +100,12 @@ const rollback = (event: Envelope): Envelope => ({ ...event, pattern: BET_PATTER
  */
 export function scenario(name: string, prefix: string): Envelope[] {
   const a = settle(prefix, 'b1', 'alice', 'USD', '10');
+  const b = settle(prefix, 'b2', 'alice', 'EUR', '25');
+  const c = settle(prefix, 'b3', 'bob', 'GBP', '40');
 
   switch (name) {
     case SCENARIO.DEMO:
-      return [
-        a,
-        settle(prefix, 'b2', 'alice', 'EUR', '25'),
-        settle(prefix, 'b3', 'bob', 'GBP', '40'),
-      ];
+      return [a, b, c];
     case SCENARIO.DUPLICATE:
       return [a, a];
     case SCENARIO.ROLLBACK:
@@ -157,10 +160,9 @@ export function load(prefix: string, bets: number, rates: ReadonlyMap<string, st
 
   shuffle(messages);
 
-  return {
-    messages,
-    expected: new Map([...totals].map(([player, points]) => [player, points.toString()])),
-  };
+  const expected = new Map([...totals].map(([player, points]) => [player, points.toString()]));
+
+  return { messages, expected };
 }
 
 /** "1.1" with 8 digits → 110000000n: exact fixed-point, never a JS number. */

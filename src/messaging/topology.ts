@@ -5,31 +5,22 @@ import {
   DEAD_LETTER_EXCHANGE_SUFFIX,
   DEAD_LETTER_QUEUE_SUFFIX,
   DEAD_LETTER_ROUTING_KEY,
-  DELIVERY_LIMIT,
+  QUEUE_ARGUMENTS,
 } from './messaging.constants';
 
 export const deadLetterExchange = (queue: string) => `${queue}${DEAD_LETTER_EXCHANGE_SUFFIX}`;
 
 export const deadLetterQueue = (queue: string) => `${queue}${DEAD_LETTER_QUEUE_SUFFIX}`;
 
-/**
- * Main queue: quorum, with a delivery limit against messages that crash the
- * consumer. Dead-lettering is at-least-once, which requires reject-publish overflow.
- * The arguments must match an existing queue exactly, otherwise assertQueue fails:
- * changing them means deleting the (empty) queue before the new version starts.
- */
+/** Main queue: durable, dead-letters to `<queue>.dlx`, arguments in QUEUE_ARGUMENTS. */
 export function queueOptions(queue: string): Options.AssertQueue {
-  return {
-    durable: true,
+  const deadLetter = {
     deadLetterExchange: deadLetterExchange(queue),
     deadLetterRoutingKey: DEAD_LETTER_ROUTING_KEY,
-    arguments: {
-      'x-queue-type': 'quorum',
-      'x-delivery-limit': DELIVERY_LIMIT,
-      'x-dead-letter-strategy': 'at-least-once',
-      'x-overflow': 'reject-publish',
-    },
   };
+
+  // A copy of the arguments: the Nest RMQ server may extend the options it is given.
+  return { durable: true, ...deadLetter, arguments: { ...QUEUE_ARGUMENTS } };
 }
 
 /**

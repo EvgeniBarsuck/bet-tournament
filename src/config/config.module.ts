@@ -7,10 +7,8 @@ import { CONFIG, type Config } from './config';
 @Module({})
 export class ConfigModule {
   static forRoot(config: Config): DynamicModule {
-    return {
-      module: ConfigModule,
-      providers: [{ provide: CONFIG, useValue: config }],
-      exports: [CONFIG],
-    };
+    const provider = { provide: CONFIG, useValue: config };
+
+    return { module: ConfigModule, providers: [provider], exports: [CONFIG] };
   }
 }

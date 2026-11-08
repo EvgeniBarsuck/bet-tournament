@@ -26,6 +26,14 @@ Compose поднимает PostgreSQL и RabbitMQ, применяет мигра
 
 Сценарии продюсера: `demo`, `duplicate` (одна ставка дважды), `rollback` (ставка и две отмены), `rollback-first` (отмена раньше ставки). Второй аргумент — префикс ID игроков и ставок; повторный запуск с тем же префиксом ничего не меняет.
 
+Сценарий `load` генерирует случайные ставки на 20 игроков во всех валютах из `USD_RATES`: часть отправляется дважды, часть отменяется, порядок перемешан. После публикации он печатает, сколько очков должно оказаться у каждого игрока; ожидаемые значения считаются в `BigInt`, без JS `number`:
+
+```sh
+docker compose exec app node dist/scripts/producer.js load bench 100000
+```
+
+100 000 ставок (около 130 000 сообщений) один экземпляр обрабатывает примерно за минуту; подробности — в [DECISIONS.md](DECISIONS.md).
+
 RabbitMQ Management: http://localhost:15672 (`tournament` / `tournament`).
 
 ## Очереди и DLQ
@@ -42,7 +50,7 @@ RabbitMQ Management: http://localhost:15672 (`tournament` / `tournament`).
 
 Сообщения без этих заголовков отклонил сам брокер или Nest: смотрите `x-first-death-reason` (`delivery_limit` — превышен лимит доставок, `rejected` — неизвестный `pattern` или битый JSON). Чтобы переотправить сообщение после исправления причины, его достаточно переложить обратно в `bet.events` (Shovel или «Move messages» в Management): повтор идемпотентен.
 
-**Обновление со старой версии.** Раньше `bet.events` была классической очередью. Тип очереди нельзя поменять на лету: пустую очередь нужно удалить до запуска новой версии (`docker compose exec rabbitmq rabbitmqctl delete_queue bet.events`), приложение создаст её заново.
+Аргументы очереди (тип, лимит доставок, DLX) RabbitMQ менять на лету не даёт: при их изменении пустую очередь нужно удалить до запуска новой версии (`docker compose exec rabbitmq rabbitmqctl delete_queue bet.events`), приложение создаст её заново.
 
 ## Событие
 
@@ -74,7 +82,7 @@ RabbitMQ Management: http://localhost:15672 (`tournament` / `tournament`).
 
 `GET /health/live` — 200, пока процесс отвечает; зависимости не проверяются, чтобы авария БД или брокера не приводила к перезапуску.
 
-`GET /health/ready` — 200, если БД доступна и миграции применены, а консьюмер подключён к RabbitMQ; иначе 503 с `{ status, database, broker }`. Её использует healthcheck в Compose.
+`GET /health/ready` — 200, если БД доступна и в ней применена последняя миграция этой сборки, а консьюмер подключён к RabbitMQ; иначе 503 с `{ status, database, broker }`. Её использует healthcheck в Compose.
 
 ## Конфигурация
 
@@ -101,7 +109,7 @@ npm run check                                # prettier, eslint, сборка, u
 docker compose up -d --wait postgres rabbitmq
 npm run test:integration                     # настоящая PostgreSQL, база tournament_test
 npm run migrate && npm start                 # приложение локально
-npm run test:smoke                           # producer → RabbitMQ → consumer → БД → HTTP
+npm run test:smoke                           # producer → RabbitMQ → consumer → БД → HTTP, DLQ, load
 ```
 
 Тесты запускаются из `dist`, поэтому после правок нужна сборка (`npm run check` или `npm run build`). Integration создаёт временную схему в базе `*_test` и удаляет её после прогона. Те же шаги выполняет CI: [.github/workflows/ci.yml](.github/workflows/ci.yml).

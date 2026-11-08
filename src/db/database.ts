@@ -3,6 +3,7 @@ import { Pool, PoolClient } from 'pg';
 
 import { CONFIG, type Config } from '../config/config';
 import { DB_POOL_OPTIONS } from './database.constants';
+import { migrationFiles } from './migrate';
 
 @Injectable()
 export class Database implements OnApplicationShutdown {
@@ -40,10 +41,17 @@ export class Database implements OnApplicationShutdown {
     }
   }
 
-  /** True if the database answers and migrations have been applied. */
+  /**
+   * True if the database answers and has the latest migration this build ships,
+   * so an instance never serves traffic on an older schema.
+   */
   async isReady(): Promise<boolean> {
     try {
-      const { rowCount } = await this.pool.query('SELECT 1 FROM schema_migrations LIMIT 1');
+      const latest = (await migrationFiles()).at(-1);
+      const { rowCount } = await this.pool.query(
+        'SELECT 1 FROM schema_migrations WHERE name = $1',
+        [latest],
+      );
 
       return rowCount === 1;
     } catch {

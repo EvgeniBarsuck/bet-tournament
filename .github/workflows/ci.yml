@@ -1,9 +1,10 @@
 name: CI
 
+# Every push, whatever the branch is called; PRs get their own run on the merge result.
 on:
   push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}

@@ -15,8 +15,8 @@ export const deadLetterQueue = (queue: string) => `${queue}${DEAD_LETTER_QUEUE_S
 /**
  * Main queue: quorum, with a delivery limit against messages that crash the
  * consumer. Dead-lettering is at-least-once, which requires reject-publish overflow.
- * The arguments must match an existing queue exactly: a classic queue created by an
- * older version has to be deleted (when empty) before the app starts.
+ * The arguments must match an existing queue exactly, otherwise assertQueue fails:
+ * changing them means deleting the (empty) queue before the new version starts.
  */
 export function queueOptions(queue: string): Options.AssertQueue {
   return {

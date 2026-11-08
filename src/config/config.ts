@@ -58,15 +58,21 @@ export interface Config {
   readonly logFormat: LogFormat;
 }
 
-export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
-  const e = env.parse(source);
+/** Parses USD_RATES: a JSON object of currency → USD per unit, as decimal strings. */
+export function parseRates(json: string): ReadonlyMap<string, string> {
   let raw: unknown;
 
   try {
-    raw = JSON.parse(e.USD_RATES);
+    raw = JSON.parse(json);
   } catch {
     throw new Error('USD_RATES must be a JSON object, e.g. {"USD":"1","EUR":"1.10"}');
   }
+
+  return new Map(Object.entries(rates.parse(raw)));
+}
+
+export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
+  const e = env.parse(source);
 
   return {
     databaseUrl: e.DATABASE_URL,
@@ -75,7 +81,7 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
     port: e.PORT,
     prefetch: e.PREFETCH,
     dbPoolSize: e.DB_POOL_SIZE,
-    rates: new Map(Object.entries(rates.parse(raw))),
+    rates: parseRates(e.USD_RATES),
     logFormat: e.LOG_FORMAT,
   };
 }

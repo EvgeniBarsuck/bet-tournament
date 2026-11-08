@@ -177,9 +177,28 @@ void test('an unreachable database host is retried, not dead-lettered', async ()
   assert.deepEqual(replies, [REQUEUE, 'ack']);
 });
 
-void test('if the requeued copy is not confirmed, the original stays unacked', async () => {
-  confirmError = new Error('channel closed');
+void test('if the requeued copy is not confirmed, the original is nacked back to the queue', async () => {
+  confirmError = new Error('nacked by broker');
   await consumer(() => Promise.reject(transient())).onSettled(event, context);
+  // Never left unacked: on a live channel it would hold a prefetch slot until consumer_timeout.
+  assert.deepEqual(replies, [REQUEUE, 'nack(requeue=true, allUpTo=false)']);
+});
+
+void test('on a closed channel a failed copy leaves the original to the broker', async () => {
+  confirmError = new Error('channel closed');
+
+  const nack = channel.nack;
+
+  channel.nack = () => {
+    throw new Error('Channel closed');
+  };
+
+  try {
+    await consumer(() => Promise.reject(transient())).onSettled(event, context);
+  } finally {
+    channel.nack = nack;
+  }
+
   assert.deepEqual(replies, [REQUEUE]);
 });
 

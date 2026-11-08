@@ -10,15 +10,18 @@ CREATE TABLE bets (
   win_amount  numeric(20, 8),
   settled_at  timestamptz,
   usd_rate    numeric(20, 8),
-  -- Exactly what was added to the player's score; a rollback subtracts this.
-  points      numeric NOT NULL DEFAULT 0 CHECK (points >= 0),
+  -- Exactly what was added to the player's score: floor(win_amount × usd_rate).
+  -- A rollback subtracts this saved value, never a recalculation.
+  points      numeric NOT NULL DEFAULT 0 CHECK (points >= 0)
+                CONSTRAINT bets_points_whole CHECK (points = floor(points)),
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE player_scores (
   player_id   varchar(128) COLLATE "C" PRIMARY KEY,
-  points      numeric NOT NULL DEFAULT 0 CHECK (points >= 0),
+  points      numeric NOT NULL DEFAULT 0 CHECK (points >= 0)
+                CONSTRAINT player_scores_points_whole CHECK (points = floor(points)),
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
 

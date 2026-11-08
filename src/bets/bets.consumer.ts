@@ -40,8 +40,8 @@ type RequeueReason = (typeof REQUEUE_REASON)[keyof typeof REQUEUE_REASON];
  *   end of the queue. A database outage pauses processing, it never fills the DLQ;
  * - anything else is a bug: DLQ with code UNEXPECTED_ERROR, error with stack.
  * A copy is published with broker confirms before the original is acked. If the copy
- * cannot be published, the original is left to the broker: nothing is lost, at worst
- * the message is processed twice, which is a no-op.
+ * cannot be published, the original is nacked (to the DLX or back to the queue):
+ * nothing is lost, at worst the message is processed twice, which is a no-op.
  * Unknown patterns and malformed JSON are dead-lettered by Nest itself, without headers.
  */
 @Controller()
@@ -252,6 +252,8 @@ export class BetsConsumer implements BeforeApplicationShutdown {
   /**
    * Copy to the end of the queue, then ack. Unlike nack with requeue, this does not
    * count against the delivery limit, so a long outage cannot push messages to the DLQ.
+   * If the broker refuses the copy, nack with requeue is the fallback: it costs one
+   * delivery, but the message does not hold a prefetch slot until consumer_timeout.
    */
   private async requeue(
     channel: ConfirmChannel,
@@ -267,8 +269,9 @@ export class BetsConsumer implements BeforeApplicationShutdown {
       });
       this.settle(() => channel.ack(message));
     } catch (error) {
-      // The original stays unacked: the broker redelivers it when the channel closes.
-      this.logger.warn(`Cannot republish the message, leaving it to the broker: ${String(error)}`);
+      // On a closed channel the nack throws, and the broker redelivers the original anyway.
+      this.logger.warn(`Cannot republish the message, using nack with requeue: ${String(error)}`);
+      this.settle(() => channel.nack(message, false, true));
     }
   }
 

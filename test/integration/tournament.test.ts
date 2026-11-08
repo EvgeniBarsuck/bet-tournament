@@ -16,7 +16,7 @@ import { BetRejectedError } from '../../src/bets/bets.errors';
 import { BetsService } from '../../src/bets/bets.service';
 import { loadConfig } from '../../src/config/config';
 import { Database } from '../../src/db/database';
-import { migrate } from '../../src/db/migrate';
+import { migrate, migrationFiles } from '../../src/db/migrate';
 import { isTransientDbError } from '../../src/db/retry';
 import { LeaderboardService } from '../../src/leaderboard/leaderboard.service';
 
@@ -132,32 +132,14 @@ void test('rollback subtracts the saved award; repeated rollback is a no-op', as
   assert.equal(await points(), '5');
 });
 
-void test('migration 002 floors old fractional awards and rebuilds scores from bets', async () => {
-  const constraints = ['bets_points_whole', 'player_scores_points_whole'];
-
-  // Recreate the state before 002: no whole-points constraints, fractional awards.
-  await pool.query('ALTER TABLE bets DROP CONSTRAINT bets_points_whole');
-  await pool.query('ALTER TABLE player_scores DROP CONSTRAINT player_scores_points_whole');
-  await pool.query(
-    `INSERT INTO bets (bet_id, player_id, status, points) VALUES
-       ('old1', 'p1', 'settled', 27.5), ('old2', 'p1', 'settled', 1.9),
-       ('old3', 'p1', 'rolled_back', 3.5), ('old4', 'p2', 'rolled_back', 2.5)`,
-  );
-  await pool.query(`INSERT INTO player_scores (player_id, points) VALUES ('p1', 29.4), ('p2', 0)`);
-  await pool.query(`DELETE FROM schema_migrations WHERE name = '002_integer_points.sql'`);
-  await migrate(pool);
-  assert.equal(await points('p1'), '28');
-  assert.equal(await points('p2'), '0');
-
-  const { rows } = await pool.query<{ conname: string }>(
-    'SELECT conname FROM pg_constraint WHERE conname = ANY($1) ORDER BY conname',
-    [constraints],
-  );
-
-  assert.deepEqual(
-    rows.map((r) => r.conname),
-    constraints,
-  );
+void test('the schema rejects fractional and negative points', async () => {
+  for (const sql of [
+    `INSERT INTO bets (bet_id, player_id, status, points) VALUES ('f', 'p1', 'settled', 27.5)`,
+    `INSERT INTO player_scores (player_id, points) VALUES ('p1', 0.5)`,
+    `INSERT INTO player_scores (player_id, points) VALUES ('p1', -1)`,
+  ]) {
+    await assert.rejects(pool.query(sql), { code: '23514' }); // check_violation
+  }
 });
 
 void test('rollback with a missing score row fails as a bug and changes nothing', async () => {
@@ -255,6 +237,20 @@ void test('HTTP: liveness ignores dependencies, readiness needs the broker too',
 
   assert.equal(ready.status, 503);
   assert.deepEqual(await ready.json(), { status: 'unavailable', database: true, broker: false });
+});
+
+void test('readiness requires the latest migration, not just any', async () => {
+  const db = app.get(Database);
+  const latest = (await migrationFiles()).at(-1);
+
+  assert.equal(await db.isReady(), true);
+  await pool.query('DELETE FROM schema_migrations WHERE name = $1', [latest]);
+
+  try {
+    assert.equal(await db.isReady(), false, 'an older schema is not ready');
+  } finally {
+    await pool.query('INSERT INTO schema_migrations (name) VALUES ($1)', [latest]);
+  }
 });
 
 void test('HTTP: X-Player-Id is required and validated', async () => {

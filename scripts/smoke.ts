@@ -7,18 +7,22 @@ import type { MessagePropertyHeaders } from 'amqplib';
 
 import { BET_PATTERN, BET_REJECTION } from '../src/bets/bets.constants';
 import { PLAYER_ID_HEADER } from '../src/common/player-id.decorator';
+import { parseRates } from '../src/config/config';
 import { CONFIG_DEFAULTS } from '../src/config/config.constants';
 import { NO_POINTS } from '../src/leaderboard/leaderboard.constants';
 import type { Leaderboard } from '../src/leaderboard/leaderboard.types';
 import { DEFAULT_QUEUE, MESSAGE_HEADER } from '../src/messaging/messaging.constants';
 import { deadLetterQueue, withChannel } from '../src/messaging/topology';
-import { DEMO_EXPECTED_POINTS, publish, SCENARIO, scenario } from './producer';
+import { DEMO_EXPECTED_POINTS, DEMO_RATES, load, publish, SCENARIO, scenario } from './producer';
 
 // End-to-end: producer → RabbitMQ → consumer → PostgreSQL → HTTP, and the DLQ.
-// Expects the default demo rates EUR=1.10, GBP=1.25.
+// Expects the app to run with the demo rates (the Compose default) or the same USD_RATES.
 const api = process.env.API_URL ?? `http://localhost:${process.env.PORT ?? CONFIG_DEFAULTS.port}`;
 const RESULT_TIMEOUT_MS = 15_000;
 const POLL_INTERVAL_MS = 200;
+/** Random bets with duplicates and rollbacks in shuffled order; about 1.3 messages per bet. */
+const LOAD_BETS = 500;
+const LOAD_TIMEOUT_MS = 60_000;
 /** Enough to look past older messages in a shared DLQ; unacked ones return on close. */
 const DLQ_PREFETCH = 1_000;
 
@@ -59,17 +63,24 @@ async function findDeadLetter(
   });
 }
 
-async function waitForPoints(playerId: string, expected: string): Promise<void> {
-  const deadline = Date.now() + RESULT_TIMEOUT_MS;
+async function pointsOf(playerId: string): Promise<string> {
+  const response = await fetch(`${api}/leaderboard`, { headers: { [PLAYER_ID_HEADER]: playerId } });
+
+  assert.equal(response.status, 200);
+
+  return ((await response.json()) as Leaderboard).player.points;
+}
+
+async function waitForPoints(
+  playerId: string,
+  expected: string,
+  timeoutMs = RESULT_TIMEOUT_MS,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
   let last = '';
 
   while (Date.now() < deadline) {
-    const response = await fetch(`${api}/leaderboard`, {
-      headers: { [PLAYER_ID_HEADER]: playerId },
-    });
-
-    assert.equal(response.status, 200);
-    last = ((await response.json()) as Leaderboard).player.points;
+    last = await pointsOf(playerId);
 
     if (last === expected) return;
 
@@ -110,9 +121,24 @@ async function main(): Promise<void> {
     undefined,
     'the acked DLQ copy came back',
   );
+
+  // Load: every player's total must match floor(win × rate) summed in BigInt.
+  const { messages, expected } = load(
+    prefix,
+    LOAD_BETS,
+    parseRates(process.env.USD_RATES ?? DEMO_RATES),
+  );
+
+  await publish(messages);
+
+  for (const [playerId, points] of expected) await waitForPoints(playerId, points, LOAD_TIMEOUT_MS);
+
+  // A final pass: a transient match while messages were still in flight would differ now.
+  for (const [playerId, points] of expected) assert.equal(await pointsOf(playerId), points);
+
   console.log(
     'Smoke passed: duplicates counted once, rollbacks subtract the award, ' +
-      'invalid events reach the DLQ with a reason',
+      `invalid events reach the DLQ with a reason, ${messages.length} shuffled load messages add up`,
   );
 }
 

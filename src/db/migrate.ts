@@ -5,14 +5,21 @@ import type { Pool } from 'pg';
 
 import { MIGRATION_FILE_EXTENSION, MIGRATIONS_DIRECTORY } from './database.constants';
 
+const DEFAULT_DIRECTORY = join(process.cwd(), MIGRATIONS_DIRECTORY);
+
+/** Migration file names in the order they are applied. */
+export async function migrationFiles(directory = DEFAULT_DIRECTORY): Promise<string[]> {
+  return (await readdir(directory))
+    .filter((name) => name.endsWith(MIGRATION_FILE_EXTENSION))
+    .sort();
+}
+
 /** Applies new files from migrations/ in name order, each in its own transaction. */
-export async function migrate(pool: Pool, directory = join(process.cwd(), MIGRATIONS_DIRECTORY)) {
+export async function migrate(pool: Pool, directory = DEFAULT_DIRECTORY) {
   await pool.query(
     'CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())',
   );
-  const files = (await readdir(directory))
-    .filter((name) => name.endsWith(MIGRATION_FILE_EXTENSION))
-    .sort();
+  const files = await migrationFiles(directory);
 
   for (const name of files) {
     const sql = await readFile(join(directory, name), 'utf8');

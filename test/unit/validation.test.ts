@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { betEventSchema } from '../../src/bets/bet-event';
-import { loadConfig } from '../../src/config';
+import { loadConfig } from '../../src/config/config';
 
 const valid = {
   betId: 'bet-1',
@@ -40,8 +40,10 @@ void test('rejects bad identifiers, currency and timestamps', () => {
     { currency: 'EURO' },
     { settledAt: '2026-11-06T10:00:00' }, // no timezone
     { settledAt: '2026-02-30T10:00:00Z' }, // no such day
+    { settledAt: '0000-01-01T00:00:00Z' }, // no year 0 in PostgreSQL
     { settledAt: 'yesterday' },
   ];
+
   for (const override of bad) {
     assert.equal(
       betEventSchema.safeParse({ ...valid, ...override }).success,
@@ -55,9 +57,24 @@ const env = { DATABASE_URL: 'postgresql://x', RABBITMQ_URL: 'amqp://x' };
 
 void test('config parses rates as decimal strings with defaults', () => {
   const config = loadConfig({ ...env, USD_RATES: '{"USD":"1","EUR":"1.10"}' });
+
   assert.equal(config.rates.get('EUR'), '1.10');
   assert.equal(config.queue, 'bet.events');
   assert.equal(loadConfig(env).rates.get('USD'), '1');
+});
+
+void test('config keeps a pool connection for every in-flight message plus HTTP', () => {
+  assert.equal(loadConfig(env).dbPoolSize, 12, 'default prefetch 10 + 2 for HTTP');
+  assert.equal(loadConfig({ ...env, PREFETCH: '16' }).dbPoolSize, 18);
+  assert.equal(loadConfig({ ...env, PREFETCH: '10', DB_POOL_SIZE: '20' }).dbPoolSize, 20);
+  assert.throws(() => loadConfig({ ...env, PREFETCH: '11', DB_POOL_SIZE: '12' }), /PREFETCH/);
+  assert.throws(() => loadConfig({ ...env, PREFETCH: '1000' }), /DB_POOL_SIZE/);
+});
+
+void test('config defaults to JSON logs and accepts text', () => {
+  assert.equal(loadConfig(env).logFormat, 'json');
+  assert.equal(loadConfig({ ...env, LOG_FORMAT: 'text' }).logFormat, 'text');
+  assert.throws(() => loadConfig({ ...env, LOG_FORMAT: 'xml' }));
 });
 
 void test('config rejects numeric, zero and malformed rates', () => {

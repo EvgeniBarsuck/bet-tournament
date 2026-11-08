@@ -40,6 +40,7 @@ services:
         condition: service_healthy
   app:
     build: .
+    restart: unless-stopped
     stop_grace_period: 30s
     environment:
       DATABASE_URL: postgresql://tournament:tournament@postgres:5432/tournament
@@ -59,7 +60,7 @@ services:
           'CMD',
           'node',
           '-e',
-          "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          "fetch('http://localhost:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
         ]
       interval: 5s
       timeout: 3s

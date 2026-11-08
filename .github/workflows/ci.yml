@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, build, unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+
+  integration:
+    name: Integration and smoke tests
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: cp .env.example .env
+      - run: npm run build
+      - name: Start PostgreSQL and RabbitMQ
+        run: docker compose up -d --wait postgres rabbitmq
+      - run: npm run test:integration
+      - name: Start the app
+        run: docker compose up --build -d --wait app
+      - run: npm run test:smoke
+      - name: Service logs
+        if: failure()
+        run: docker compose logs --no-color

@@ -1,11 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 
-import { CONFIG, type Config } from '../config';
+import { CONFIG, type Config } from '../config/config';
 import { Database } from '../db/database';
-import { type BetEvent, PermanentError } from './bet-event';
+import type { BetEvent } from './bet-event';
+import { APPLY_RESULT, type ApplyResult, BET_REJECTION, BET_STATUS } from './bets.constants';
+import { BetRejectedError } from './bets.errors';
 import { BetsRepository } from './bets.repository';
-
-export type ApplyResult = 'settled' | 'rolled_back' | 'duplicate' | 'ignored';
 
 /**
  * Tournament rules. Every operation is one transaction: the bet row and the
@@ -22,27 +22,47 @@ export class BetsService {
 
   settle(event: BetEvent): Promise<ApplyResult> {
     const rate = this.config.rates.get(event.currency);
+
     if (rate === undefined) {
-      return Promise.reject(new PermanentError(`No USD rate configured for ${event.currency}`));
+      return Promise.reject(
+        new BetRejectedError(
+          BET_REJECTION.UNKNOWN_CURRENCY,
+          `No USD rate configured for ${event.currency}`,
+        ),
+      );
     }
+
     return this.db.transaction(async (client) => {
       const points = await this.bets.insertSettled(client, event, rate);
+
       if (points !== null) {
         await this.bets.addPoints(client, event.playerId, points);
-        return 'settled';
+
+        return APPLY_RESULT.SETTLED;
       }
 
       // The bet already exists: a redelivery, a late settle after rollback, or a conflict.
       const bet = await this.bets.compareSettlement(client, event);
+
       if (!bet) throw new Error(`Bet ${event.betId} vanished after insert conflict`);
+
       if (bet.playerId !== event.playerId) {
-        throw new PermanentError(`Bet ${event.betId} belongs to another player`);
+        throw new BetRejectedError(
+          BET_REJECTION.OWNER_CONFLICT,
+          `Bet ${event.betId} belongs to another player`,
+        );
       }
-      if (bet.status === 'rolled_back') return 'ignored'; // rollback is final
+
+      if (bet.status === BET_STATUS.ROLLED_BACK) return APPLY_RESULT.IGNORED; // rollback is final
+
       if (!bet.sameSettlement) {
-        throw new PermanentError(`Bet ${event.betId} was settled with other values`);
+        throw new BetRejectedError(
+          BET_REJECTION.SETTLEMENT_CONFLICT,
+          `Bet ${event.betId} was settled with other values`,
+        );
       }
-      return 'duplicate';
+
+      return APPLY_RESULT.DUPLICATE;
     });
   }
 
@@ -50,20 +70,31 @@ export class BetsService {
     return this.db.transaction(async (client) => {
       // Rollback before settle: remember it so the late settle awards nothing.
       if (await this.bets.insertRollbackMarker(client, event.betId, event.playerId)) {
-        return 'rolled_back';
+        return APPLY_RESULT.ROLLED_BACK;
       }
 
       const bet = await this.bets.lock(client, event.betId);
+
       if (!bet) throw new Error(`Bet ${event.betId} vanished after insert conflict`);
+
       if (bet.playerId !== event.playerId) {
-        throw new PermanentError(`Bet ${event.betId} belongs to another player`);
+        throw new BetRejectedError(
+          BET_REJECTION.OWNER_CONFLICT,
+          `Bet ${event.betId} belongs to another player`,
+        );
       }
-      if (bet.status === 'rolled_back') return 'duplicate';
+
+      if (bet.status === BET_STATUS.ROLLED_BACK) return APPLY_RESULT.DUPLICATE;
 
       // Subtract exactly what was awarded, regardless of the current rate or event amounts.
       await this.bets.markRolledBack(client, event.betId);
-      await this.bets.subtractPoints(client, event.playerId, bet.points);
-      return 'rolled_back';
+
+      // Every settle creates the score row, so a missing one means corrupted data.
+      if (!(await this.bets.subtractPoints(client, event.playerId, bet.points))) {
+        throw new Error(`Score of ${event.playerId} is missing for settled bet ${event.betId}`);
+      }
+
+      return APPLY_RESULT.ROLLED_BACK;
     });
   }
 }

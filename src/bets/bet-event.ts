@@ -1,26 +1,20 @@
 import { z } from 'zod';
 
-export const BET_SETTLED = 'bet.settled';
-export const BET_ROLLBACK = 'bet.rollback';
-
-/** Shared by event IDs and the X-Player-Id header. */
-export const ID_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
+import { CURRENCY_PATTERN, DECIMAL_PATTERN, ID_PATTERN } from '../common/formats';
+import { YEAR_ZERO } from './bets.constants';
 
 // Money arrives as a decimal string: JSON numbers lose precision.
-const amount = z.string().regex(/^\d{1,12}(\.\d{1,8})?$/, 'decimal string, max 12.8 digits');
+const amount = z.string().regex(DECIMAL_PATTERN, 'decimal string, max 12.8 digits');
 
 export const betEventSchema = z.object({
   betId: z.string().regex(ID_PATTERN),
   playerId: z.string().regex(ID_PATTERN),
-  currency: z.string().regex(/^[A-Z]{3}$/),
+  currency: z.string().regex(CURRENCY_PATTERN),
   stake: amount,
   winAmount: amount,
-  settledAt: z.iso.datetime({ offset: true }),
+  settledAt: z.iso
+    .datetime({ offset: true })
+    .refine((value) => !YEAR_ZERO.test(value), 'year 0000 does not exist'),
 });
 
 export type BetEvent = z.infer<typeof betEventSchema>;
-
-/** Business rule violation: retrying the same message cannot fix it. */
-export class PermanentError extends Error {
-  override readonly name = 'PermanentError';
-}

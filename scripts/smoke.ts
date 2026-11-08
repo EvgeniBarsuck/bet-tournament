@@ -3,37 +3,117 @@ import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-import type { Leaderboard } from '../src/leaderboard/leaderboard.service';
-import { publish, scenario } from './producer';
+import type { MessagePropertyHeaders } from 'amqplib';
 
-// End-to-end: producer → RabbitMQ → consumer → PostgreSQL → HTTP.
+import { BET_PATTERN, BET_REJECTION } from '../src/bets/bets.constants';
+import { PLAYER_ID_HEADER } from '../src/common/player-id.decorator';
+import { CONFIG_DEFAULTS } from '../src/config/config.constants';
+import { NO_POINTS } from '../src/leaderboard/leaderboard.constants';
+import type { Leaderboard } from '../src/leaderboard/leaderboard.types';
+import { DEFAULT_QUEUE, MESSAGE_HEADER } from '../src/messaging/messaging.constants';
+import { deadLetterQueue, withChannel } from '../src/messaging/topology';
+import { DEMO_EXPECTED_POINTS, publish, SCENARIO, scenario } from './producer';
+
+// End-to-end: producer → RabbitMQ → consumer → PostgreSQL → HTTP, and the DLQ.
 // Expects the default demo rates EUR=1.10, GBP=1.25.
-const api = process.env.API_URL ?? `http://localhost:${process.env.PORT ?? 3000}`;
+const api = process.env.API_URL ?? `http://localhost:${process.env.PORT ?? CONFIG_DEFAULTS.port}`;
+const RESULT_TIMEOUT_MS = 15_000;
+const POLL_INTERVAL_MS = 200;
+/** Enough to look past older messages in a shared DLQ; unacked ones return on close. */
+const DLQ_PREFETCH = 1_000;
+
+/** How long the DLQ is watched to make sure an acked copy did not come back. */
+const ABSENCE_CHECK_MS = 2_000;
+
+/**
+ * Watches the DLQ for the copy of a bet and returns its headers, or undefined if it
+ * does not show up in time. With `take`, the copy is acked, i.e. removed from the DLQ;
+ * otherwise it, like every other message seen, returns to the DLQ on channel close.
+ */
+async function findDeadLetter(
+  betId: string,
+  take: boolean,
+  timeoutMs: number,
+): Promise<MessagePropertyHeaders | undefined> {
+  const url = process.env.RABBITMQ_URL;
+
+  if (!url) throw new Error('RABBITMQ_URL is required');
+
+  const queue = deadLetterQueue(process.env.RABBITMQ_QUEUE ?? DEFAULT_QUEUE);
+
+  return withChannel(url, async (channel) => {
+    await channel.prefetch(DLQ_PREFETCH);
+
+    return new Promise<MessagePropertyHeaders | undefined>((resolve) => {
+      const timer = setTimeout(() => resolve(undefined), timeoutMs);
+
+      void channel.consume(queue, (message) => {
+        if (!message?.content.toString().includes(betId)) return;
+
+        if (take) channel.ack(message);
+
+        clearTimeout(timer);
+        resolve((message.properties as { headers?: MessagePropertyHeaders }).headers ?? {});
+      });
+    });
+  });
+}
 
 async function waitForPoints(playerId: string, expected: string): Promise<void> {
-  const deadline = Date.now() + 15_000;
+  const deadline = Date.now() + RESULT_TIMEOUT_MS;
   let last = '';
+
   while (Date.now() < deadline) {
-    const response = await fetch(`${api}/leaderboard`, { headers: { 'X-Player-Id': playerId } });
+    const response = await fetch(`${api}/leaderboard`, {
+      headers: { [PLAYER_ID_HEADER]: playerId },
+    });
+
     assert.equal(response.status, 200);
     last = ((await response.json()) as Leaderboard).player.points;
+
     if (last === expected) return;
-    await sleep(200);
+
+    await sleep(POLL_INTERVAL_MS);
   }
+
   throw new Error(`${playerId}: expected ${expected} points, got ${last}`);
 }
 
 async function main(): Promise<void> {
   assert.equal((await fetch(`${api}/leaderboard`)).status, 400);
+
   const prefix = `smoke${Date.now()}`;
-  const demo = scenario('demo', prefix);
+  const demo = scenario(SCENARIO.DEMO, prefix);
+
   await publish([...demo, ...demo]); // every message delivered twice
-  await waitForPoints(`${prefix}-alice`, '37.5');
-  await waitForPoints(`${prefix}-bob`, '50');
-  await publish(demo.map((message) => ({ ...message, pattern: 'bet.rollback' as const })));
-  await waitForPoints(`${prefix}-alice`, '0');
-  await waitForPoints(`${prefix}-bob`, '0');
-  console.log('Smoke passed: duplicates counted once, rollbacks subtract the award');
+  await waitForPoints(`${prefix}-alice`, DEMO_EXPECTED_POINTS.alice);
+  await waitForPoints(`${prefix}-bob`, DEMO_EXPECTED_POINTS.bob);
+  await publish(demo.map((message) => ({ ...message, pattern: BET_PATTERN.ROLLBACK })));
+  await waitForPoints(`${prefix}-alice`, NO_POINTS);
+  await waitForPoints(`${prefix}-bob`, NO_POINTS);
+
+  // A JSON number instead of a decimal string: rejected to the DLQ with its code.
+  const invalid = `${prefix}-invalid`;
+
+  await publish([
+    { pattern: BET_PATTERN.SETTLED, data: { ...demo[0]?.data, betId: invalid, winAmount: 25 } },
+  ]);
+
+  const headers = await findDeadLetter(invalid, true, RESULT_TIMEOUT_MS);
+
+  assert.ok(headers, `${invalid} did not reach the DLQ`);
+  assert.equal(headers[MESSAGE_HEADER.REJECTION_CODE], BET_REJECTION.INVALID_EVENT);
+  assert.match(String(headers[MESSAGE_HEADER.REJECTION_REASON]), /winAmount/);
+  // The ack above must survive closing the connection (withChannel closes the channel first).
+  assert.equal(
+    await findDeadLetter(invalid, false, ABSENCE_CHECK_MS),
+    undefined,
+    'the acked DLQ copy came back',
+  );
+  console.log(
+    'Smoke passed: duplicates counted once, rollbacks subtract the award, ' +
+      'invalid events reach the DLQ with a reason',
+  );
 }
 
 main().catch((error: unknown) => {

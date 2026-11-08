@@ -1,0 +1,70 @@
+services:
+  postgres:
+    image: postgres:18-bookworm
+    environment:
+      POSTGRES_USER: tournament
+      POSTGRES_PASSWORD: tournament
+      POSTGRES_DB: tournament
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/01-test.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U tournament -d tournament']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  rabbitmq:
+    image: rabbitmq:4.2-management
+    environment:
+      RABBITMQ_DEFAULT_USER: tournament
+      RABBITMQ_DEFAULT_PASS: tournament
+    ports:
+      - '127.0.0.1:5672:5672'
+      - '127.0.0.1:15672:15672'
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  migrate:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://tournament:tournament@postgres:5432/tournament
+    command: ['node', 'dist/scripts/migrate.js']
+    depends_on:
+      postgres:
+        condition: service_healthy
+  app:
+    build: .
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      DATABASE_URL: postgresql://tournament:tournament@postgres:5432/tournament
+      RABBITMQ_URL: amqp://tournament:tournament@rabbitmq:5672
+      USD_RATES: '${USD_RATES:-{"USD":"1","EUR":"1.10","GBP":"1.25"}}'
+      PORT: 3000
+    ports:
+      - '127.0.0.1:3000:3000'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:3000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+volumes:
+  postgres_data:
+  rabbitmq_data:

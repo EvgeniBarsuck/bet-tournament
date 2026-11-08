@@ -58,7 +58,7 @@ docker compose up --build -d --wait app
 npm run test:smoke
 ```
 
-Нужен `.env` из `.env.example`. Тесты запускаются из `dist`, поэтому после изменений нужна сборка. Integration работает только с базой, имя которой оканчивается на `_test`, во временной схеме. При изменении `BetsService`, `BetsRepository`, SQL или миграций запускать integration; при изменении consumer, `main.ts` или Compose — ещё и smoke. Блокировки не подменять моками и не ослаблять тесты ради зелёного прогона.
+Нужен `.env` из `.env.example`; его читают npm-скрипты флагом `--env-file-if-exists` (без `dotenv`), поэтому запускать через `npm run`. Тесты запускаются из `dist`, поэтому после изменений нужна сборка. Integration работает только с базой, имя которой оканчивается на `_test`, во временной схеме. При изменении `BetsService`, `BetsRepository`, SQL или миграций запускать integration; при изменении consumer, `main.ts` или Compose — ещё и smoke. Блокировки не подменять моками и не ослаблять тесты ради зелёного прогона.
 
 ESLint (`eslint.config.mjs`) проверяет:
 - type-aware набор `recommendedTypeChecked`, в том числе потерянные Promise;

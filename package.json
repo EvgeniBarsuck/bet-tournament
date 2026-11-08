@@ -7,14 +7,14 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/src/main.js",
-    "migrate": "node dist/scripts/migrate.js",
-    "producer": "node dist/scripts/producer.js",
+    "start": "node --env-file-if-exists=.env dist/src/main.js",
+    "migrate": "node --env-file-if-exists=.env dist/scripts/migrate.js",
+    "producer": "node --env-file-if-exists=.env dist/scripts/producer.js",
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "node --test dist/test/unit/*.test.js",
-    "test:integration": "node --test --test-concurrency=1 dist/test/integration/*.test.js",
-    "test:smoke": "node dist/scripts/smoke.js",
+    "test:integration": "node --env-file-if-exists=.env --test --test-concurrency=1 dist/test/integration/*.test.js",
+    "test:smoke": "node --env-file-if-exists=.env dist/scripts/smoke.js",
     "check": "prettier --check . && npm run lint && npm run build && npm test"
   },
   "dependencies": {
@@ -24,7 +24,6 @@
     "@nestjs/platform-express": "^12.4.0",
     "amqp-connection-manager": "^4.1.14",
     "amqplib": "^0.10.9",
-    "dotenv": "^17.2.3",
     "pg": "^8.16.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",

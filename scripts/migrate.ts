@@ -1,5 +1,3 @@
-import 'dotenv/config';
-
 import { Pool } from 'pg';
 
 import { migrate } from '../src/db/migrate';

@@ -1,5 +1,4 @@
 import 'reflect-metadata';
-import 'dotenv/config';
 
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';

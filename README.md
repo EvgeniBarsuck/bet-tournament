@@ -101,7 +101,7 @@ RabbitMQ Management: http://localhost:15672 (`tournament` / `tournament`).
 
 ## Разработка и тесты
 
-Нужен Node.js 24+. Скопируйте `.env.example` в `.env`.
+Нужен Node.js 24+. Скопируйте `.env.example` в `.env`: npm-скрипты читают его встроенным флагом Node `--env-file-if-exists`, переменные окружения имеют приоритет над файлом.
 
 ```sh
 npm ci

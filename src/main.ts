@@ -1,5 +1,4 @@
 import 'reflect-metadata';
-import 'dotenv/config';
 
 import { ConsoleLogger, Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';

@@ -1,5 +1,3 @@
-import 'dotenv/config';
-
 import { randomInt } from 'node:crypto';
 import { once } from 'node:events';
 
